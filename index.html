@@ -69,22 +69,15 @@
             const iconRef = React.useRef(null);
             
             useEffect(() => {
-                if (iconRef.current) {
-                    // Clear any existing icon
-                    iconRef.current.innerHTML = '';
-                    // Create the icon element
-                    const iconElement = document.createElement('i');
-                    iconElement.setAttribute('data-lucide', name);
-                    iconElement.setAttribute('width', size);
-                    iconElement.setAttribute('height', size);
-                    if (className) iconElement.className = className;
-                    iconRef.current.appendChild(iconElement);
-                    // Initialize Lucide on this specific element
-                    lucide.createIcons({ icons: { [name]: lucide[name] }, nameAttr: 'data-lucide' });
+                if (iconRef.current && lucide && lucide.createIcons) {
+                    const timer = setTimeout(() => {
+                        lucide.createIcons();
+                    }, 0);
+                    return () => clearTimeout(timer);
                 }
             }, [name, size, className]);
             
-            return <span ref={iconRef} style={{ display: 'inline-flex', alignItems: 'center' }}></span>;
+            return <i ref={iconRef} data-lucide={name} width={size} height={size} className={className}></i>;
         };
 
         // --- Constants ---
