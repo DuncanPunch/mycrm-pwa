@@ -45,15 +45,8 @@
         .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
         
         /* Tab animations */
-        .tab-content-enter {
-            opacity: 0;
-            transform: translateX(20px);
-        }
-        .tab-content-active {
-            opacity: 1;
-            transform: translateX(0);
-            transition: all 0.3s ease-out;
-        }
+        .tab-content-enter { opacity: 0; transform: translateX(20px); }
+        .tab-content-active { opacity: 1; transform: translateX(0); transition: all 0.3s ease-out; }
         
         /* Hide scrollbar for clean UI */
         .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -66,7 +59,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
         
         // Register Service Worker for PWA
         if ('serviceWorker' in navigator) {
@@ -79,17 +72,13 @@
         
         // --- Icon Wrapper for Vanilla Lucide in React ---
         const Icon = ({ name, size = 24, className = "" }) => {
-            const iconRef = React.useRef(null);
-            
+            const iconRef = useRef(null);
             useEffect(() => {
                 if (iconRef.current && lucide && lucide.createIcons) {
-                    const timer = setTimeout(() => {
-                        lucide.createIcons();
-                    }, 0);
+                    const timer = setTimeout(() => lucide.createIcons(), 0);
                     return () => clearTimeout(timer);
                 }
             }, [name, size, className]);
-            
             return <i ref={iconRef} data-lucide={name} width={size} height={size} className={className}></i>;
         };
 
@@ -100,9 +89,7 @@
         function App() {
             const [showSplash, setShowSplash] = useState(true);
             const [isLocked, setIsLocked] = useState(true);
-            const [pin, setPin] = useState('');
             const [userPin, setUserPin] = useState('1234');
-            const [activeTab, setActiveTab] = useState('dashboard');
             const [viewStack, setViewStack] = useState([]);
             const [contacts, setContacts] = useState([]);
             const [activeContactId, setActiveContactId] = useState(null);
@@ -110,65 +97,42 @@
             const [editingData, setEditingData] = useState({});
             const [darkMode, setDarkMode] = useState(false);
             const [tags, setTags] = useState(DEFAULT_TAGS);
+            
+            // Modal State: null or { type: 'family'|'event', contactId: number }
+            const [modalState, setModalState] = useState(null); 
 
             // --- Initialization ---
             useEffect(() => {
-                // Theme
                 const savedTheme = localStorage.getItem('mycrm_theme');
                 if (savedTheme === 'dark') {
                     setDarkMode(true);
                     document.documentElement.classList.add('dark');
                 }
-
-                // PIN
                 const savedPin = localStorage.getItem('mycrm_pin');
                 if (savedPin) setUserPin(savedPin);
 
-                // Data
                 const savedData = localStorage.getItem('mycrm_data');
                 if (savedData) {
                     setContacts(JSON.parse(savedData));
                 } else {
-                    // Enhanced Seed Data with events and family
                     setContacts([{
                         id: 1, 
                         name: "Sarah Jenkins", 
-                        nickname: "Sare-Bear", 
-                        isFavorite: true, 
                         relation: "College Friend",
-                        details: { 
-                            birthday: "1992-04-15", 
-                            job: "Graphic Designer",
-                            phone: "555-0123",
-                            email: "sarah.j@email.com",
-                            address: "123 Main St, Portland, OR"
-                        },
-                        family: [
-                            { id: 101, name: "Tom Jenkins", relation: "Husband", birthday: "1990-08-22" },
-                            { id: 102, name: "Emma Jenkins", relation: "Daughter", birthday: "2020-03-10" }
-                        ],
-                        pets: [
-                            { id: 201, name: "Whiskers", type: "Cat", notes: "Orange tabby, very friendly" }
-                        ],
-                        events: [
-                            { id: 301, title: "Wedding Anniversary", date: "2024-06-15", type: "anniversary", notes: "5th anniversary" },
-                            { id: 302, title: "Emma's Birthday Party", date: "2024-03-10", type: "birthday", notes: "Unicorn theme" }
-                        ],
-                        notes: [
-                            { id: 901, text: "Loves spicy food", tag: "Food", date: new Date().toISOString(), dismissed: false },
-                            { id: 902, text: "Allergic to shellfish", tag: "Health", date: new Date().toISOString(), dismissed: false }
-                        ]
+                        isFavorite: true,
+                        details: { birthday: "1992-04-15", job: "Graphic Designer", phone: "555-0123", email: "sarah.j@email.com", address: "123 Main St, Portland, OR" },
+                        family: [{ id: 101, name: "Tom Jenkins", relation: "Husband", birthday: "1990-08-22" }],
+                        pets: [{ id: 201, name: "Whiskers", type: "Cat", notes: "Orange tabby" }],
+                        events: [{ id: 301, title: "Anniversary", date: "2025-06-15", type: "anniversary", notes: "5th year" }],
+                        notes: [{ id: 901, text: "Loves spicy food", tag: "Food", date: new Date().toISOString(), dismissed: false }]
                     }]);
                 }
-
                 setTimeout(() => setShowSplash(false), 2200);
             }, []);
 
             // --- Persistence ---
             useEffect(() => {
-                if (contacts.length > 0) {
-                    localStorage.setItem('mycrm_data', JSON.stringify(contacts));
-                }
+                if (contacts.length > 0) localStorage.setItem('mycrm_data', JSON.stringify(contacts));
             }, [contacts]);
 
             // --- Navigation ---
@@ -179,7 +143,8 @@
 
             const goBack = () => {
                 setViewStack(prev => prev.slice(0, -1));
-                setActiveContactId(viewStack[viewStack.length - 2]?.contactId || null);
+                const prevView = viewStack[viewStack.length - 2];
+                setActiveContactId(prevView?.contactId || null);
             };
 
             const currentView = viewStack[viewStack.length - 1]?.view || null;
@@ -197,49 +162,41 @@
                 }
             };
 
-            // --- Handle Lock Screen ---
-            const handleUnlock = () => {
-                if (pin === userPin) {
-                    setIsLocked(false);
-                    setPin('');
-                } else {
-                    alert('Incorrect PIN');
-                    setPin('');
-                }
-            };
-
-            // --- Search ---
+            // --- Search Logic ---
             const filteredContacts = useMemo(() => {
                 if (!searchQuery) return contacts;
                 const query = searchQuery.toLowerCase();
-                return contacts.filter(c => 
-                    c.name?.toLowerCase().includes(query) ||
-                    c.relation?.toLowerCase().includes(query) ||
-                    c.details?.job?.toLowerCase().includes(query)
-                );
+                return contacts.filter(c => c.name?.toLowerCase().includes(query) || c.relation?.toLowerCase().includes(query));
             }, [contacts, searchQuery]);
 
-            const favoriteContacts = useMemo(() => 
-                contacts.filter(c => c.isFavorite),
-                [contacts]
-            );
+            const favoriteContacts = useMemo(() => contacts.filter(c => c.isFavorite), [contacts]);
 
-            // --- Save/Delete Contact ---
+            // --- Dashboard Computed Data (New Features) ---
+            const upcomingEvents = useMemo(() => {
+                const all = contacts.flatMap(c => (c.events || []).map(e => ({ ...e, contactName: c.name, contactId: c.id })));
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                return all
+                    .filter(e => new Date(e.date) >= today)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date))
+                    .slice(0, 3);
+            }, [contacts]);
+
+            const recentNotes = useMemo(() => {
+                const all = contacts.flatMap(c => (c.notes || []).map(n => ({ ...n, contactName: c.name, contactId: c.id })));
+                return all
+                    .filter(n => !n.dismissed)
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 3);
+            }, [contacts]);
+
+            // --- Save/Delete Logic ---
             const saveContact = () => {
                 if (!editingData.name) return;
-
                 if (editingData.id) {
                     setContacts(contacts.map(c => c.id === editingData.id ? editingData : c));
                 } else {
-                    const newContact = { 
-                        ...editingData, 
-                        id: Date.now(), 
-                        notes: [], 
-                        family: [], 
-                        pets: [], 
-                        events: [] 
-                    };
-                    setContacts([...contacts, newContact]);
+                    setContacts([...contacts, { ...editingData, id: Date.now(), notes: [], family: [], pets: [], events: [] }]);
                 }
                 setEditingData({});
                 goBack();
@@ -251,6 +208,33 @@
                     setEditingData({});
                     setViewStack([]);
                 }
+            };
+
+            const dismissNote = (contactId, noteId) => {
+                const contact = contacts.find(c => c.id === contactId);
+                if (contact) {
+                    const updatedNotes = contact.notes.map(n => n.id === noteId ? { ...n, dismissed: true } : n);
+                    setContacts(contacts.map(c => c.id === contactId ? { ...contact, notes: updatedNotes } : c));
+                }
+            };
+
+            // --- Modals Logic ---
+            const handleAddFamily = (data) => {
+                const contact = contacts.find(c => c.id === modalState.contactId);
+                if(contact) {
+                    const updated = { ...contact, family: [...(contact.family || []), { ...data, id: Date.now() }] };
+                    setContacts(contacts.map(c => c.id === contact.id ? updated : c));
+                }
+                setModalState(null);
+            };
+
+            const handleAddEvent = (data) => {
+                const contact = contacts.find(c => c.id === modalState.contactId);
+                if(contact) {
+                    const updated = { ...contact, events: [...(contact.events || []), { ...data, id: Date.now() }] };
+                    setContacts(contacts.map(c => c.id === contact.id ? updated : c));
+                }
+                setModalState(null);
             };
 
             // --- Splash Screen ---
@@ -270,28 +254,7 @@
 
             // --- Lock Screen ---
             if (isLocked) {
-                return (
-                    <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-indigo-600'} flex items-center justify-center p-6`}>
-                        <div className="w-full max-w-sm text-center">
-                            <h2 className="text-white text-2xl font-bold mb-8">Enter PIN</h2>
-                            <input
-                                type="password"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                value={pin}
-                                onChange={(e) => setPin(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && handleUnlock()}
-                                className="w-full px-6 py-4 text-center text-2xl bg-white/20 backdrop-blur text-white placeholder-white/60 rounded-xl mb-6 outline-none"
-                                placeholder="••••"
-                                maxLength={4}
-                                autoFocus
-                            />
-                            <button onClick={handleUnlock} className="w-full py-4 bg-white text-indigo-600 rounded-xl font-bold">
-                                Unlock
-                            </button>
-                        </div>
-                    </div>
-                );
+                return <LockScreen pin={userPin} onUnlock={() => setIsLocked(false)} darkMode={darkMode} />;
             }
 
             // --- Main Layout ---
@@ -301,19 +264,13 @@
                     {!currentView && (
                         <div className={`sticky top-0 z-50 backdrop-blur-lg ${darkMode ? 'bg-slate-900/90 border-slate-800' : 'bg-white/90 border-slate-200'} border-b`}>
                             <div className="px-4 py-3 flex justify-between items-center">
-                                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                                    myCRM
-                                </h1>
+                                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">myCRM</h1>
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => navigateTo('quicknote')} className="p-2 rounded-lg bg-indigo-600 text-white">
                                         <Icon name="zap" size={20} />
                                     </button>
-                                    <button onClick={toggleDarkMode} className={`p-2 rounded-lg ${darkMode ? 'bg-slate-800 text-yellow-400' : 'bg-slate-100'}`}>
-                                        <Icon name={darkMode ? 'sun' : 'moon'} size={20} />
-                                    </button>
                                 </div>
                             </div>
-                            {/* Search */}
                             <div className="px-4 pb-3">
                                 <div className="relative">
                                     <Icon name="search" size={20} className="absolute left-3 top-3 text-slate-400" />
@@ -329,20 +286,18 @@
                         </div>
                     )}
 
-                    {/* Main Content */}
+                    {/* Main Content Area */}
                     <div className="pb-20">
                         {currentView === 'detail' && activeContactId && (
                             <ContactDetail
                                 contact={contacts.find(c => c.id === activeContactId)}
-                                onEdit={() => {
-                                    setEditingData(contacts.find(c => c.id === activeContactId));
-                                    navigateTo('edit', activeContactId);
-                                }}
+                                onEdit={() => { setEditingData(contacts.find(c => c.id === activeContactId)); navigateTo('edit', activeContactId); }}
                                 onBack={goBack}
                                 setContacts={setContacts}
                                 allContacts={contacts}
                                 tags={tags}
                                 darkMode={darkMode}
+                                onOpenModal={(type, contactId) => setModalState({ type, contactId })}
                             />
                         )}
                         {currentView === 'edit' && (
@@ -356,15 +311,48 @@
                             />
                         )}
                         {currentView === 'quicknote' && (
-                            <QuickNote
+                            <QuickNote contacts={contacts} setContacts={setContacts} onCancel={goBack} />
+                        )}
+                        {currentView === 'settings' && (
+                            <SettingsView 
+                                onBack={goBack} 
+                                darkMode={darkMode} 
+                                toggleDarkMode={toggleDarkMode}
                                 contacts={contacts}
                                 setContacts={setContacts}
-                                onCancel={goBack}
-                                tags={tags}
+                                userPin={userPin}
+                                setUserPin={setUserPin}
                             />
                         )}
+                        
+                        {/* Dashboard */}
                         {!currentView && (
                             <div className="p-4 space-y-6">
+                                {/* Upcoming Events (NEW) */}
+                                {upcomingEvents.length > 0 && (
+                                    <section>
+                                        <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
+                                            <Icon name="calendar" size={20} className="text-indigo-500" />
+                                            Upcoming
+                                        </h2>
+                                        <div className="space-y-3">
+                                            {upcomingEvents.map(event => (
+                                                <div key={`${event.contactId}-${event.id}`} className={`p-3 rounded-xl border-l-4 border-indigo-500 ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-sm flex justify-between items-center`}>
+                                                    <div>
+                                                        <div className="font-bold text-sm">{event.title}</div>
+                                                        <div className="text-xs text-slate-500 mt-0.5">
+                                                            {event.contactName} • {new Date(event.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                                                        </div>
+                                                    </div>
+                                                    <div className={`px-2 py-1 rounded text-xs font-bold uppercase ${event.type === 'birthday' ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {event.type}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </section>
+                                )}
+
                                 {/* Favorites */}
                                 {favoriteContacts.length > 0 && (
                                     <section>
@@ -374,13 +362,36 @@
                                         </h2>
                                         <div className="grid grid-cols-2 gap-3">
                                             {favoriteContacts.map(contact => (
-                                                <div
-                                                    key={contact.id}
-                                                    onClick={() => navigateTo('detail', contact.id)}
-                                                    className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-sm active:scale-95 transition-transform`}
-                                                >
+                                                <div key={contact.id} onClick={() => navigateTo('detail', contact.id)} className={`p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-sm active:scale-95 transition-transform`}>
                                                     <div className="font-bold">{contact.name}</div>
                                                     <div className="text-xs text-slate-500 mt-1">{contact.relation}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </section>
+                                )}
+
+                                {/* Recent Notes (NEW) */}
+                                {recentNotes.length > 0 && (
+                                    <section>
+                                        <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
+                                            <Icon name="sticky-note" size={20} className="text-emerald-500" />
+                                            Recent Notes
+                                        </h2>
+                                        <div className="space-y-3">
+                                            {recentNotes.map(note => (
+                                                <div key={`${note.contactId}-${note.id}`} className={`p-3 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-sm relative group`}>
+                                                    <div className="flex justify-between items-start">
+                                                        <span className="text-xs font-bold text-emerald-500">{note.contactName}</span>
+                                                        <span className="text-[10px] text-slate-400">{new Date(note.date).toLocaleDateString()}</span>
+                                                    </div>
+                                                    <p className="text-sm mt-1 pr-6">{note.text}</p>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); dismissNote(note.contactId, note.id); }} 
+                                                        className="absolute bottom-2 right-2 p-1 text-slate-400 hover:text-emerald-500"
+                                                    >
+                                                        <Icon name="check" size={16} />
+                                                    </button>
                                                 </div>
                                             ))}
                                         </div>
@@ -395,11 +406,7 @@
                                     </h2>
                                     <div className="space-y-2">
                                         {filteredContacts.map(contact => (
-                                            <div
-                                                key={contact.id}
-                                                onClick={() => navigateTo('detail', contact.id)}
-                                                className={`flex items-center justify-between p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-sm active:scale-95 transition-transform`}
-                                            >
+                                            <div key={contact.id} onClick={() => navigateTo('detail', contact.id)} className={`flex items-center justify-between p-4 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-sm active:scale-95 transition-transform`}>
                                                 <div>
                                                     <div className="font-bold">{contact.name}</div>
                                                     <div className="text-xs text-slate-500">{contact.relation}</div>
@@ -413,26 +420,28 @@
                         )}
                     </div>
 
+                    {/* Modals */}
+                    {modalState && (
+                        <ModalOverlay onClose={() => setModalState(null)} darkMode={darkMode}>
+                            {modalState.type === 'family' && <AddFamilyForm onSave={handleAddFamily} onCancel={() => setModalState(null)} darkMode={darkMode} />}
+                            {modalState.type === 'event' && <AddEventForm onSave={handleAddEvent} onCancel={() => setModalState(null)} darkMode={darkMode} />}
+                        </ModalOverlay>
+                    )}
+
                     {/* Bottom Navigation */}
                     {!currentView && (
-                        <div className={`fixed bottom-0 left-0 right-0 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-t`}>
+                        <div className={`fixed bottom-0 left-0 right-0 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-t pb-safe`}>
                             <div className="grid grid-cols-3 gap-0">
                                 <button className="py-3 flex flex-col items-center gap-1 text-indigo-600">
                                     <Icon name="home" size={24} />
                                     <span className="text-xs">Home</span>
                                 </button>
-                                <button
-                                    onClick={() => {
-                                        setEditingData({});
-                                        navigateTo('edit');
-                                    }}
-                                    className="py-3 flex flex-col items-center gap-1"
-                                >
-                                    <div className="p-2 bg-indigo-600 text-white rounded-full">
+                                <button onClick={() => { setEditingData({}); navigateTo('edit'); }} className="py-3 flex flex-col items-center gap-1">
+                                    <div className="p-2 bg-indigo-600 text-white rounded-full shadow-lg">
                                         <Icon name="plus" size={24} />
                                     </div>
                                 </button>
-                                <button className="py-3 flex flex-col items-center gap-1 text-slate-400">
+                                <button onClick={() => navigateTo('settings')} className="py-3 flex flex-col items-center gap-1 text-slate-400 hover:text-indigo-600 transition-colors">
                                     <Icon name="settings" size={24} />
                                     <span className="text-xs">Settings</span>
                                 </button>
@@ -443,195 +452,329 @@
             );
         }
 
-        // --- Quick Note Component ---
-        const QuickNote = ({ contacts, setContacts, onCancel, tags }) => {
-            const [text, setText] = useState('');
-            const [selectedId, setSelectedId] = useState(null);
-            const [query, setQuery] = useState('');
+        // --- Reusable Pin Pad Component ---
+        const PinPad = ({ onComplete, title = "Enter PIN", length = 4, darkMode }) => {
+            const [input, setInput] = useState('');
 
-            const filtered = useMemo(() => {
-                if (!query) return [];
-                return contacts.filter(c => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 5);
-            }, [query, contacts]);
-
-            const handleSave = () => {
-                if (!text.trim()) return;
-
-                if (selectedId) {
-                    const contact = contacts.find(c => c.id === selectedId);
-                    const updated = {
-                        ...contact,
-                        notes: [
-                            { id: Date.now(), text, tag: 'General', date: new Date().toISOString(), dismissed: false },
-                            ...(contact.notes || [])
-                        ]
-                    };
-                    setContacts(contacts.map(c => c.id === selectedId ? updated : c));
-                } else if (query) {
-                    const newContact = {
-                        id: Date.now(),
-                        name: query,
-                        relation: 'New Contact',
-                        notes: [{ id: Date.now(), text, tag: 'General', date: new Date().toISOString(), dismissed: false }],
-                        family: [],
-                        pets: [],
-                        events: []
-                    };
-                    setContacts([...contacts, newContact]);
+            const handlePress = (num) => {
+                if (input.length < length) {
+                    const newVal = input + num;
+                    setInput(newVal);
+                    if (newVal.length === length) {
+                        setTimeout(() => {
+                            onComplete(newVal);
+                            setInput('');
+                        }, 300);
+                    }
                 }
-                onCancel();
+            };
+
+            const handleDelete = () => setInput(prev => prev.slice(0, -1));
+
+            return (
+                <div className="w-full max-w-xs mx-auto">
+                    <h2 className={`text-2xl font-bold text-center mb-8 ${darkMode ? 'text-white' : 'text-white'}`}>{title}</h2>
+                    
+                    {/* Dots Display */}
+                    <div className="flex justify-center gap-4 mb-10">
+                        {[...Array(length)].map((_, i) => (
+                            <div key={i} className={`w-4 h-4 rounded-full transition-all duration-300 ${i < input.length ? 'bg-white scale-110' : 'bg-white/30'}`} />
+                        ))}
+                    </div>
+
+                    {/* Keypad */}
+                    <div className="grid grid-cols-3 gap-4">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                            <button 
+                                key={num} 
+                                onClick={() => handlePress(num)}
+                                className="h-16 rounded-full bg-white/10 backdrop-blur text-white text-2xl font-medium hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center"
+                            >
+                                {num}
+                            </button>
+                        ))}
+                        <div className="col-start-2">
+                            <button 
+                                onClick={() => handlePress(0)}
+                                className="w-full h-16 rounded-full bg-white/10 backdrop-blur text-white text-2xl font-medium hover:bg-white/20 active:scale-95 transition-all flex items-center justify-center"
+                            >
+                                0
+                            </button>
+                        </div>
+                        <div className="col-start-3">
+                            <button 
+                                onClick={handleDelete}
+                                className="w-full h-16 rounded-full text-white/80 hover:text-white hover:bg-white/10 flex items-center justify-center"
+                            >
+                                <Icon name="delete" size={24} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Lock Screen Component ---
+        const LockScreen = ({ pin, onUnlock, darkMode }) => {
+            const handleAttempt = (attempt) => {
+                if (attempt === pin) {
+                    onUnlock();
+                } else {
+                    // Small vibration for error (if supported)
+                    if(navigator.vibrate) navigator.vibrate(200);
+                    // We clear input inside PinPad, but visual feedback is handled there
+                }
             };
 
             return (
-                <div className="min-h-screen bg-slate-900 p-6 flex flex-col animate-fade-in text-white">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-emerald-400">Quick Note</h2>
-                        <button onClick={onCancel} className="p-2 bg-slate-800 rounded-full">
-                            <Icon name="x" size={20}/>
+                <div className={`min-h-screen ${darkMode ? 'bg-slate-900' : 'bg-indigo-600'} flex items-center justify-center p-6`}>
+                    <PinPad onComplete={handleAttempt} darkMode={darkMode} />
+                </div>
+            );
+        };
+
+        // --- Settings View Component ---
+        const SettingsView = ({ onBack, darkMode, toggleDarkMode, contacts, setContacts, userPin, setUserPin }) => {
+            const [changingPin, setChangingPin] = useState(false);
+            
+            const handleBackup = () => {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(contacts));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "mycrm_backup_" + new Date().toISOString().slice(0,10) + ".json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            };
+
+            const handleRestore = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const loadedData = JSON.parse(event.target.result);
+                        if (Array.isArray(loadedData)) {
+                            if(confirm("This will overwrite your current data. Are you sure?")) {
+                                setContacts(loadedData);
+                                alert('Data restored successfully!');
+                            }
+                        } else {
+                            alert('Invalid backup file format.');
+                        }
+                    } catch (err) {
+                        alert('Error reading file.');
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            if (changingPin) {
+                return (
+                    <div className="min-h-screen bg-indigo-600 flex flex-col p-6">
+                        <button onClick={() => setChangingPin(false)} className="self-start text-white mb-10">
+                            <Icon name="arrow-left" size={24} />
                         </button>
-                    </div>
-                    <textarea 
-                        autoFocus 
-                        value={text} 
-                        onChange={e => setText(e.target.value)} 
-                        placeholder="What did you learn?" 
-                        className="w-full h-32 bg-slate-800 border-none rounded-xl p-4 text-lg mb-6 focus:ring-2 focus:ring-emerald-500 outline-none placeholder-slate-500" 
-                    />
-                    <div className="space-y-2 mb-6">
-                        <label className="text-xs uppercase font-bold text-slate-500 tracking-wider">Link to Person</label>
-                        <div className="relative">
-                            <div className="absolute left-3 top-3 text-slate-400">
-                                <Icon name="search" size={18}/>
-                            </div>
-                            <input 
-                                value={query} 
-                                onChange={e => { setQuery(e.target.value); setSelectedId(null); }} 
-                                placeholder="Type name..." 
-                                className={`w-full pl-10 pr-4 py-3 bg-slate-800 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 ${selectedId ? 'text-emerald-400 font-bold' : ''}`} 
+                        <div className="flex-1 flex items-center justify-center">
+                            <PinPad 
+                                title="Set New PIN" 
+                                onComplete={(newPin) => { 
+                                    setUserPin(newPin); 
+                                    localStorage.setItem('mycrm_pin', newPin);
+                                    setChangingPin(false);
+                                    alert("PIN Updated!");
+                                }} 
+                                darkMode={true} // Always dark/contrast for pin pad
                             />
-                            {selectedId && <Icon name="check" size={18} className="absolute right-3 top-3.5 text-emerald-500" />}
                         </div>
-                        {!selectedId && query && (
-                            <div className="bg-slate-800 rounded-xl overflow-hidden divide-y divide-slate-700">
-                                {filtered.map(c => (
-                                    <div 
-                                        key={c.id} 
-                                        onClick={() => { setQuery(c.name); setSelectedId(c.id); }} 
-                                        className="p-3 flex items-center justify-between active:bg-slate-700"
-                                    >
-                                        <span>{c.name}</span>
-                                        <span className="text-xs text-slate-500">{c.relation}</span>
-                                    </div>
-                                ))}
-                                {filtered.length === 0 && (
-                                    <div className="p-3 bg-emerald-900/30 text-emerald-400 flex items-center gap-2">
-                                        <Icon name="user-plus" size={16} />
-                                        <span className="text-sm">Create new: <strong>"{query}"</strong></span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
                     </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen animate-fade-in">
+                     <div className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b`}>
+                        <div className="flex items-center gap-3 p-4">
+                            <button onClick={onBack}><Icon name="arrow-left" size={24} /></button>
+                            <h2 className="font-bold text-xl">Settings</h2>
+                        </div>
+                    </div>
+
+                    <div className="p-4 space-y-6">
+                        {/* Appearance */}
+                        <section className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Appearance</h3>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                                        <Icon name={darkMode ? 'moon' : 'sun'} size={20} />
+                                    </div>
+                                    <span>Dark Mode</span>
+                                </div>
+                                <button 
+                                    onClick={toggleDarkMode}
+                                    className={`w-12 h-6 rounded-full relative transition-colors ${darkMode ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                                >
+                                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 ${darkMode ? 'left-7' : 'left-1'}`} />
+                                </button>
+                            </div>
+                        </section>
+
+                        {/* Security */}
+                        <section className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Security</h3>
+                            <button 
+                                onClick={() => setChangingPin(true)}
+                                className="w-full flex items-center justify-between py-2"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                                        <Icon name="lock" size={20} />
+                                    </div>
+                                    <span>Change PIN Code</span>
+                                </div>
+                                <Icon name="chevron-right" size={20} className="text-slate-400" />
+                            </button>
+                        </section>
+
+                        {/* Data Management */}
+                        <section className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Data Management</h3>
+                            
+                            {/* Backup */}
+                            <button onClick={handleBackup} className="w-full flex items-center gap-3 py-3 border-b border-slate-100 dark:border-slate-700">
+                                <div className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-green-50 text-green-600'}`}>
+                                    <Icon name="download" size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <div className="font-medium">Backup Data</div>
+                                    <div className="text-xs text-slate-500">Download a recovery file</div>
+                                </div>
+                            </button>
+
+                            {/* Restore */}
+                            <label className="w-full flex items-center gap-3 py-3 cursor-pointer">
+                                <div className={`p-2 rounded-lg ${darkMode ? 'bg-slate-700' : 'bg-blue-50 text-blue-600'}`}>
+                                    <Icon name="upload" size={20} />
+                                </div>
+                                <div className="text-left flex-1">
+                                    <div className="font-medium">Restore Data</div>
+                                    <div className="text-xs text-slate-500">Upload a recovery file</div>
+                                </div>
+                                <input type="file" accept=".json" onChange={handleRestore} className="hidden" />
+                            </label>
+                        </section>
+
+                        <div className="text-center text-xs text-slate-400 pt-8">
+                            myCRM v1.1 <br/> Local Storage Based
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Modals & Forms ---
+        const ModalOverlay = ({ children, onClose, darkMode }) => (
+            <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                <div 
+                    className={`w-full max-w-md rounded-2xl p-6 shadow-2xl ${darkMode ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'}`}
+                    onClick={e => e.stopPropagation()}
+                >
+                    {children}
+                </div>
+            </div>
+        );
+
+        const AddFamilyForm = ({ onSave, onCancel, darkMode }) => {
+            const [form, setForm] = useState({ name: '', relation: '', birthday: '' });
+            return (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-lg">Add Family Member</h3>
+                        <button onClick={onCancel}><Icon name="x" size={20} /></button>
+                    </div>
+                    <Input label="Name" value={form.name} onChange={v => setForm({...form, name: v})} darkMode={darkMode} />
+                    <Input label="Relationship" value={form.relation} onChange={v => setForm({...form, relation: v})} darkMode={darkMode} />
+                    <Input type="date" label="Birthday" value={form.birthday} onChange={v => setForm({...form, birthday: v})} darkMode={darkMode} />
                     <button 
-                        onClick={handleSave} 
-                        disabled={!text.trim() || (!selectedId && !query)} 
-                        className="w-full py-4 bg-emerald-600 rounded-xl font-bold text-lg disabled:opacity-50 mt-auto"
+                        onClick={() => onSave(form)} 
+                        disabled={!form.name || !form.relation}
+                        className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold mt-4 disabled:opacity-50"
                     >
-                        Save Note
+                        Add Person
                     </button>
                 </div>
             );
         };
 
-        // --- Contact Detail Component with Tabs ---
-        const ContactDetail = ({ contact, onEdit, onBack, setContacts, allContacts, tags, darkMode }) => {
+        const AddEventForm = ({ onSave, onCancel, darkMode }) => {
+            const [form, setForm] = useState({ title: '', date: new Date().toISOString().split('T')[0], type: 'general', notes: '' });
+            return (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-lg">Add Event</h3>
+                        <button onClick={onCancel}><Icon name="x" size={20} /></button>
+                    </div>
+                    <Input label="Event Title" value={form.title} onChange={v => setForm({...form, title: v})} darkMode={darkMode} />
+                    <Input type="date" label="Date" value={form.date} onChange={v => setForm({...form, date: v})} darkMode={darkMode} />
+                    <div>
+                        <label className="text-xs uppercase font-bold text-slate-400 mb-1 block">Type</label>
+                        <div className="flex gap-2">
+                            {['general', 'birthday', 'anniversary'].map(type => (
+                                <button
+                                    key={type}
+                                    onClick={() => setForm({...form, type})}
+                                    className={`px-3 py-2 rounded-lg text-xs font-bold capitalize border ${
+                                        form.type === type 
+                                            ? 'bg-indigo-600 text-white border-indigo-600' 
+                                            : darkMode ? 'border-slate-600 text-slate-400' : 'border-slate-200 text-slate-600'
+                                    }`}
+                                >
+                                    {type}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <Input label="Notes (Optional)" value={form.notes} onChange={v => setForm({...form, notes: v})} darkMode={darkMode} />
+                    <button 
+                        onClick={() => onSave(form)} 
+                        disabled={!form.title || !form.date}
+                        className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold mt-4 disabled:opacity-50"
+                    >
+                        Save Event
+                    </button>
+                </div>
+            );
+        };
+
+        // --- Updated Contact Detail (Uses Modals) ---
+        const ContactDetail = ({ contact, onEdit, onBack, setContacts, allContacts, tags, darkMode, onOpenModal }) => {
             const [activeProfileTab, setActiveProfileTab] = useState('bio');
             const sortedNotes = useMemo(() => [...(contact.notes || [])].sort((a,b) => new Date(b.date) - new Date(a.date)), [contact.notes]);
             const sortedEvents = useMemo(() => [...(contact.events || [])].sort((a,b) => new Date(b.date) - new Date(a.date)), [contact.events]);
             
-            const groupedNotes = useMemo(() => {
-                const groups = {};
-                sortedNotes.forEach(n => { 
-                    const t = n.tag || 'General'; 
-                    if(!groups[t]) groups[t]=[]; 
-                    groups[t].push(n); 
-                });
-                return groups;
-            }, [sortedNotes]);
-
             const addNote = (text, tag) => {
                 const updated = { 
                     ...contact, 
-                    notes: [
-                        { id: Date.now(), text, tag, date: new Date().toISOString(), dismissed: false }, 
-                        ...(contact.notes || [])
-                    ] 
+                    notes: [{ id: Date.now(), text, tag, date: new Date().toISOString(), dismissed: false }, ...(contact.notes || [])] 
                 };
                 setContacts(allContacts.map(c => c.id === contact.id ? updated : c));
             };
 
-            const addFamilyMember = () => {
-                const name = prompt('Family member name:');
-                if (!name) return;
-                const relation = prompt('Relationship (e.g., Mother, Brother, etc.):');
-                if (!relation) return;
-                
-                const updated = { 
-                    ...contact, 
-                    family: [
-                        ...(contact.family || []),
-                        { id: Date.now(), name, relation, birthday: '' }
-                    ] 
-                };
-                setContacts(allContacts.map(c => c.id === contact.id ? updated : c));
-            };
-
-            const addEvent = () => {
-                const title = prompt('Event title:');
-                if (!title) return;
-                const date = prompt('Event date (YYYY-MM-DD):');
-                if (!date) return;
-                
-                const updated = { 
-                    ...contact, 
-                    events: [
-                        ...(contact.events || []),
-                        { id: Date.now(), title, date, type: 'general', notes: '' }
-                    ] 
-                };
-                setContacts(allContacts.map(c => c.id === contact.id ? updated : c));
-            };
-
-            const deleteFamilyMember = (familyId) => {
-                if (!confirm('Remove this family member?')) return;
-                const updated = { 
-                    ...contact, 
-                    family: contact.family.filter(f => f.id !== familyId)
-                };
-                setContacts(allContacts.map(c => c.id === contact.id ? updated : c));
-            };
-
-            const deleteEvent = (eventId) => {
-                if (!confirm('Remove this event?')) return;
-                const updated = { 
-                    ...contact, 
-                    events: contact.events.filter(e => e.id !== eventId)
-                };
+            const deleteItem = (type, id) => {
+                if (!confirm('Remove this item?')) return;
+                const updated = { ...contact, [type]: contact[type].filter(i => i.id !== id) };
                 setContacts(allContacts.map(c => c.id === contact.id ? updated : c));
             };
 
             return (
                 <div className="animate-fade-in min-h-screen">
-                    {/* Header with back button */}
+                    {/* Header */}
                     <div className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b`}>
                         <div className="flex items-center justify-between p-4">
-                            <button onClick={onBack} className="p-2 -ml-2">
-                                <Icon name="arrow-left" size={20} />
-                            </button>
+                            <button onClick={onBack} className="p-2 -ml-2"><Icon name="arrow-left" size={20} /></button>
                             <h2 className="font-bold">Profile</h2>
-                            <button onClick={onEdit} className="p-2 -mr-2">
-                                <Icon name="edit-2" size={20} />
-                            </button>
+                            <button onClick={onEdit} className="p-2 -mr-2"><Icon name="edit-2" size={20} /></button>
                         </div>
                     </div>
 
@@ -645,9 +788,6 @@
                                 {contact.name} 
                                 {contact.isFavorite && <Icon name="star" size={18} className="fill-yellow-400 text-yellow-400"/>}
                             </h2>
-                            {contact.nickname && (
-                                <p className="text-sm text-slate-500 mt-1">"{contact.nickname}"</p>
-                            )}
                             <span className="inline-block mt-2 px-3 py-1 bg-indigo-50 text-indigo-700 text-xs rounded-full font-medium">
                                 {contact.relation}
                             </span>
@@ -657,113 +797,41 @@
                     {/* Tabs */}
                     <div className={`sticky top-[57px] z-30 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b`}>
                         <div className="flex">
-                            <button
-                                onClick={() => setActiveProfileTab('bio')}
-                                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${
-                                    activeProfileTab === 'bio' 
-                                        ? 'text-indigo-600' 
-                                        : 'text-slate-500'
-                                }`}
-                            >
-                                <div className="flex items-center justify-center gap-2">
-                                    <Icon name="user" size={16} />
-                                    Bio/Family
-                                </div>
-                                {activeProfileTab === 'bio' && (
-                                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>
-                                )}
-                            </button>
-                            <button
-                                onClick={() => setActiveProfileTab('notes')}
-                                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${
-                                    activeProfileTab === 'notes' 
-                                        ? 'text-indigo-600' 
-                                        : 'text-slate-500'
-                                }`}
-                            >
-                                <div className="flex items-center justify-center gap-2">
-                                    <Icon name="sticky-note" size={16} />
-                                    Notes
-                                </div>
-                                {activeProfileTab === 'notes' && (
-                                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>
-                                )}
-                            </button>
-                            <button
-                                onClick={() => setActiveProfileTab('events')}
-                                className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${
-                                    activeProfileTab === 'events' 
-                                        ? 'text-indigo-600' 
-                                        : 'text-slate-500'
-                                }`}
-                            >
-                                <div className="flex items-center justify-center gap-2">
-                                    <Icon name="calendar" size={16} />
-                                    Events
-                                </div>
-                                {activeProfileTab === 'events' && (
-                                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>
-                                )}
-                            </button>
+                            {['bio', 'notes', 'events'].map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveProfileTab(tab)}
+                                    className={`flex-1 py-3 px-4 text-sm font-medium capitalize transition-colors relative ${activeProfileTab === tab ? 'text-indigo-600' : 'text-slate-500'}`}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Icon name={tab === 'bio' ? 'user' : tab === 'notes' ? 'sticky-note' : 'calendar'} size={16} />
+                                        {tab === 'bio' ? 'Bio/Family' : tab}
+                                    </div>
+                                    {activeProfileTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
+                                </button>
+                            ))}
                         </div>
                     </div>
 
                     {/* Tab Content */}
                     <div className="p-4 pb-20">
-                        {/* Bio/Family Tab */}
                         {activeProfileTab === 'bio' && (
                             <div className="space-y-6 animate-slide-up">
                                 {/* Basic Info */}
                                 <section>
                                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Icon name="info" size={14} /> Basic Information
+                                        <Icon name="info" size={14} /> Details
                                     </h3>
                                     <div className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} space-y-3`}>
-                                        {contact.details?.birthday && (
-                                            <div className="flex items-center gap-3">
-                                                <Icon name="cake" size={16} className="text-slate-400" />
+                                        {Object.entries(contact.details || {}).map(([key, val]) => val && (
+                                            <div key={key} className="flex items-center gap-3">
+                                                <Icon name={key === 'birthday' ? 'cake' : key === 'phone' ? 'phone' : key === 'email' ? 'mail' : 'map-pin'} size={16} className="text-slate-400" />
                                                 <div>
-                                                    <div className="text-xs text-slate-500">Birthday</div>
-                                                    <div className="font-medium">{new Date(contact.details.birthday).toLocaleDateString()}</div>
+                                                    <div className="text-xs text-slate-500 capitalize">{key}</div>
+                                                    <div className="font-medium">{val}</div>
                                                 </div>
                                             </div>
-                                        )}
-                                        {contact.details?.job && (
-                                            <div className="flex items-center gap-3">
-                                                <Icon name="briefcase" size={16} className="text-slate-400" />
-                                                <div>
-                                                    <div className="text-xs text-slate-500">Occupation</div>
-                                                    <div className="font-medium">{contact.details.job}</div>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {contact.details?.phone && (
-                                            <div className="flex items-center gap-3">
-                                                <Icon name="phone" size={16} className="text-slate-400" />
-                                                <div>
-                                                    <div className="text-xs text-slate-500">Phone</div>
-                                                    <div className="font-medium">{contact.details.phone}</div>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {contact.details?.email && (
-                                            <div className="flex items-center gap-3">
-                                                <Icon name="mail" size={16} className="text-slate-400" />
-                                                <div>
-                                                    <div className="text-xs text-slate-500">Email</div>
-                                                    <div className="font-medium">{contact.details.email}</div>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {contact.details?.address && (
-                                            <div className="flex items-center gap-3">
-                                                <Icon name="map-pin" size={16} className="text-slate-400" />
-                                                <div>
-                                                    <div className="text-xs text-slate-500">Address</div>
-                                                    <div className="font-medium">{contact.details.address}</div>
-                                                </div>
-                                            </div>
-                                        )}
+                                        ))}
                                     </div>
                                 </section>
 
@@ -773,278 +841,76 @@
                                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
                                             <Icon name="users" size={14} /> Family Members
                                         </h3>
-                                        <button 
-                                            onClick={addFamilyMember}
-                                            className="p-1 text-indigo-600"
-                                        >
+                                        <button onClick={() => onOpenModal('family', contact.id)} className="p-1 text-indigo-600">
                                             <Icon name="plus" size={16} />
                                         </button>
                                     </div>
-                                    {contact.family?.length > 0 ? (
-                                        <div className="space-y-2">
-                                            {contact.family.map(member => (
-                                                <div key={member.id} className={`p-3 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} flex items-center justify-between`}>
-                                                    <div>
-                                                        <div className="font-medium">{member.name}</div>
-                                                        <div className="text-xs text-slate-500">{member.relation}</div>
-                                                        {member.birthday && (
-                                                            <div className="text-xs text-slate-400 mt-1">
-                                                                🎂 {new Date(member.birthday).toLocaleDateString()}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => deleteFamilyMember(member.id)}
-                                                        className="p-1 text-red-500"
-                                                    >
-                                                        <Icon name="trash-2" size={14} />
-                                                    </button>
+                                    <div className="space-y-2">
+                                        {(contact.family || []).map(member => (
+                                            <div key={member.id} className={`p-3 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} flex items-center justify-between`}>
+                                                <div>
+                                                    <div className="font-medium">{member.name}</div>
+                                                    <div className="text-xs text-slate-500">{member.relation}</div>
+                                                    {member.birthday && <div className="text-xs text-slate-400 mt-1">🎂 {new Date(member.birthday).toLocaleDateString()}</div>}
                                                 </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-sm text-slate-500">No family members added yet</p>
-                                    )}
-                                </section>
-
-                                {/* Pets */}
-                                {contact.pets?.length > 0 && (
-                                    <section>
-                                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                            <Icon name="heart" size={14} /> Pets
-                                        </h3>
-                                        <div className="space-y-2">
-                                            {contact.pets.map(pet => (
-                                                <div key={pet.id} className={`p-3 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                                                    <div className="font-medium">{pet.name}</div>
-                                                    <div className="text-xs text-slate-500">{pet.type}</div>
-                                                    {pet.notes && (
-                                                        <div className="text-sm text-slate-600 mt-1">{pet.notes}</div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </section>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Notes Tab */}
-                        {activeProfileTab === 'notes' && (
-                            <div className="space-y-6 animate-slide-up">
-                                <section>
-                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Icon name="plus-circle" size={14} /> Add Note
-                                    </h3>
-                                    <NoteInput onAdd={addNote} tags={tags} darkMode={darkMode} />
-                                </section>
-                                
-                                {sortedNotes.length > 0 ? (
-                                    <div className="space-y-6">
-                                        {Object.keys(groupedNotes).sort((a, b) => a.localeCompare(b)).map(tag => (
-                                            <div key={tag} className="space-y-2">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded">
-                                                        {tag}
-                                                    </span>
-                                                    <div className="h-[1px] flex-1 bg-slate-200 dark:bg-slate-700"></div>
-                                                </div>
-                                                {groupedNotes[tag].map(note => (
-                                                    <div key={note.id} className={`p-3 rounded-lg text-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-amber-50 border-amber-100'}`}>
-                                                        <p className="whitespace-pre-wrap">{note.text}</p>
-                                                        <div className="text-xs text-slate-400 mt-2 text-right">
-                                                            {new Date(note.date).toLocaleDateString()}
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                <button onClick={() => deleteItem('family', member.id)} className="p-1 text-red-500"><Icon name="trash-2" size={14} /></button>
                                             </div>
                                         ))}
+                                        {(!contact.family || contact.family.length === 0) && <p className="text-sm text-slate-500 italic">No family added.</p>}
                                     </div>
-                                ) : (
-                                    <p className="text-sm text-slate-500 text-center py-8">No notes yet. Add your first note above!</p>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Events Tab */}
-                        {activeProfileTab === 'events' && (
-                            <div className="space-y-6 animate-slide-up">
-                                <section>
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                                            <Icon name="calendar-plus" size={14} /> Important Dates
-                                        </h3>
-                                        <button 
-                                            onClick={addEvent}
-                                            className="p-1 text-indigo-600"
-                                        >
-                                            <Icon name="plus" size={16} />
-                                        </button>
-                                    </div>
-                                    
-                                    {sortedEvents.length > 0 ? (
-                                        <div className="space-y-2">
-                                            {sortedEvents.map(event => (
-                                                <div key={event.id} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} flex items-start justify-between`}>
-                                                    <div className="flex gap-3">
-                                                        <div className={`p-2 rounded-lg ${
-                                                            event.type === 'birthday' ? 'bg-pink-100 text-pink-600' :
-                                                            event.type === 'anniversary' ? 'bg-purple-100 text-purple-600' :
-                                                            'bg-blue-100 text-blue-600'
-                                                        }`}>
-                                                            <Icon name={
-                                                                event.type === 'birthday' ? 'cake' :
-                                                                event.type === 'anniversary' ? 'heart' :
-                                                                'calendar'
-                                                            } size={16} />
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-medium">{event.title}</div>
-                                                            <div className="text-xs text-slate-500">
-                                                                {new Date(event.date).toLocaleDateString('en-US', { 
-                                                                    weekday: 'short', 
-                                                                    year: 'numeric', 
-                                                                    month: 'long', 
-                                                                    day: 'numeric' 
-                                                                })}
-                                                            </div>
-                                                            {event.notes && (
-                                                                <div className="text-sm text-slate-600 mt-1">{event.notes}</div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => deleteEvent(event.id)}
-                                                        className="p-1 text-red-500"
-                                                    >
-                                                        <Icon name="trash-2" size={14} />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-sm text-slate-500 text-center py-8">No events added yet. Tap + to add important dates!</p>
-                                    )}
                                 </section>
                             </div>
                         )}
-                    </div>
-                </div>
-            );
-        };
 
-        // --- Note Input Component ---
-        const NoteInput = ({ onAdd, tags, darkMode }) => {
-            const [text, setText] = useState('');
-            const [tag, setTag] = useState('General');
-            
-            return (
-                <form onSubmit={e => { e.preventDefault(); if(text.trim()) { onAdd(text, tag); setText(''); } }} className="space-y-2">
-                    <div className="relative">
-                        <textarea 
-                            value={text} 
-                            onChange={e => setText(e.target.value)} 
-                            placeholder="Add a note..." 
-                            rows={3}
-                            className={`w-full px-4 py-3 rounded-xl shadow-sm border outline-none focus:ring-2 focus:ring-indigo-500 resize-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} 
-                        />
-                        <button 
-                            type="submit" 
-                            disabled={!text.trim()} 
-                            className="absolute bottom-3 right-3 p-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50"
-                        >
-                            <Icon name="send" size={16} />
-                        </button>
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                        {tags.map(t => (
-                            <button 
-                                key={t} 
-                                type="button" 
-                                onClick={() => setTag(t)} 
-                                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                                    tag === t 
-                                        ? 'bg-indigo-600 text-white' 
-                                        : 'bg-slate-200 text-slate-600'
-                                }`}
-                            >
-                                {t}
-                            </button>
-                        ))}
-                    </div>
-                </form>
-            );
-        };
-
-        // --- Edit Profile Component ---
-        const EditProfile = ({ data, setData, onSave, onCancel, onDelete, darkMode }) => (
-            <div className="min-h-screen">
-                <div className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b`}>
-                    <div className="flex items-center justify-between p-4">
-                        <button onClick={onCancel} className="p-2 -ml-2">
-                            <Icon name="x" size={20}/>
-                        </button>
-                        <h2 className="font-bold">{data.id ? 'Edit Profile' : 'New Profile'}</h2>
-                        <button onClick={onSave} className="p-2 -mr-2 text-indigo-600 font-bold">
-                            Save
-                        </button>
-                    </div>
-                </div>
-                
-                <div className="p-4 space-y-6 pb-24 animate-fade-in">
-                    <section>
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Basic Information</h3>
-                        <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                            <Input label="Name *" value={data.name || ''} onChange={v => setData({...data, name: v})} darkMode={darkMode} required />
-                            <Input label="Nickname" value={data.nickname || ''} onChange={v => setData({...data, nickname: v})} darkMode={darkMode} />
-                            <Input label="Relationship *" value={data.relation || ''} onChange={v => setData({...data, relation: v})} darkMode={darkMode} required />
-                            <div>
-                                <label className="text-xs uppercase font-bold text-slate-400">Favorite</label>
-                                <div className="mt-2">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setData({...data, isFavorite: !data.isFavorite})}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
-                                            data.isFavorite 
-                                                ? 'bg-yellow-50 border-yellow-300 text-yellow-700' 
-                                                : 'border-slate-300 text-slate-600'
-                                        }`}
-                                    >
-                                        <Icon name="star" size={16} className={data.isFavorite ? 'fill-yellow-500' : ''} />
-                                        {data.isFavorite ? 'Favorited' : 'Add to Favorites'}
-                                    </button>
+                        {activeProfileTab === 'notes' && (
+                            <div className="space-y-6 animate-slide-up">
+                                <NoteInput onAdd={addNote} tags={tags} darkMode={darkMode} />
+                                <div className="space-y-2">
+                                    {sortedNotes.map(note => (
+                                        <div key={note.id} className={`p-3 rounded-lg text-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-amber-50 border-amber-100'}`}>
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider bg-white/50 px-1 rounded">{note.tag}</span>
+                                                <span className="text-xs text-slate-400">{new Date(note.date).toLocaleDateString()}</span>
+                                            </div>
+                                            <p className="whitespace-pre-wrap">{note.text}</p>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                        </div>
-                    </section>
+                        )}
 
-                    <section>
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Contact Details</h3>
-                        <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                            <Input label="Phone" value={data.details?.phone || ''} onChange={v => setData({...data, details: {...data.details, phone: v}})} darkMode={darkMode} type="tel" />
-                            <Input label="Email" value={data.details?.email || ''} onChange={v => setData({...data, details: {...data.details, email: v}})} darkMode={darkMode} type="email" />
-                            <Input label="Address" value={data.details?.address || ''} onChange={v => setData({...data, details: {...data.details, address: v}})} darkMode={darkMode} />
-                        </div>
-                    </section>
-
-                    <section>
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Personal Details</h3>
-                        <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                            <Input type="date" label="Birthday" value={data.details?.birthday || ''} onChange={v => setData({...data, details: {...data.details, birthday: v}})} darkMode={darkMode} />
-                            <Input label="Occupation" value={data.details?.job || ''} onChange={v => setData({...data, details: {...data.details, job: v}})} darkMode={darkMode} />
-                        </div>
-                    </section>
-
-                    {data.id && (
-                        <button onClick={onDelete} className="w-full py-3 text-red-500 font-medium">
-                            Delete Profile
-                        </button>
-                    )}
+                        {activeProfileTab === 'events' && (
+                            <div className="space-y-6 animate-slide-up">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">Important Dates</h3>
+                                    <button onClick={() => onOpenModal('event', contact.id)} className="p-1 text-indigo-600"><Icon name="plus" size={16} /></button>
+                                </div>
+                                <div className="space-y-2">
+                                    {sortedEvents.map(event => (
+                                        <div key={event.id} className={`p-4 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} flex items-start justify-between`}>
+                                            <div className="flex gap-3">
+                                                <div className={`p-2 rounded-lg ${event.type === 'birthday' ? 'bg-pink-100 text-pink-600' : event.type === 'anniversary' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                    <Icon name={event.type === 'birthday' ? 'cake' : event.type === 'anniversary' ? 'heart' : 'calendar'} size={16} />
+                                                </div>
+                                                <div>
+                                                    <div className="font-medium">{event.title}</div>
+                                                    <div className="text-xs text-slate-500">{new Date(event.date).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                                                    {event.notes && <div className="text-sm text-slate-600 mt-1">{event.notes}</div>}
+                                                </div>
+                                            </div>
+                                            <button onClick={() => deleteItem('events', event.id)} className="p-1 text-red-500"><Icon name="trash-2" size={14} /></button>
+                                        </div>
+                                    ))}
+                                    {(!contact.events || contact.events.length === 0) && <p className="text-sm text-slate-500 italic">No upcoming events.</p>}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
-        );
+            );
+        };
 
-        // --- Input Component ---
+        // --- Input Component Helper ---
         const Input = ({ label, value, onChange, type="text", darkMode, required }) => (
             <div>
                 <label className="text-xs uppercase font-bold text-slate-400">{label}</label>
@@ -1055,6 +921,137 @@
                     className={`w-full p-3 mt-1 rounded-lg border outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-slate-50 border-slate-200'}`} 
                     required={required}
                 />
+            </div>
+        );
+
+        // --- Note Input Component ---
+        const NoteInput = ({ onAdd, tags, darkMode }) => {
+            const [text, setText] = useState('');
+            const [tag, setTag] = useState('General');
+            return (
+                <form onSubmit={e => { e.preventDefault(); if(text.trim()) { onAdd(text, tag); setText(''); } }} className="space-y-2">
+                    <div className="relative">
+                        <textarea 
+                            value={text} 
+                            onChange={e => setText(e.target.value)} 
+                            placeholder="Add a note..." 
+                            rows={3}
+                            className={`w-full px-4 py-3 rounded-xl shadow-sm border outline-none focus:ring-2 focus:ring-indigo-500 resize-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} 
+                        />
+                        <button type="submit" disabled={!text.trim()} className="absolute bottom-3 right-3 p-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50">
+                            <Icon name="send" size={16} />
+                        </button>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {tags.map(t => (
+                            <button key={t} type="button" onClick={() => setTag(t)} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${tag === t ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                {t}
+                            </button>
+                        ))}
+                    </div>
+                </form>
+            );
+        };
+        
+        // --- Quick Note Component (Kept same as before) ---
+        const QuickNote = ({ contacts, setContacts, onCancel }) => {
+            const [text, setText] = useState('');
+            const [selectedId, setSelectedId] = useState(null);
+            const [query, setQuery] = useState('');
+
+            const filtered = useMemo(() => {
+                if (!query) return [];
+                return contacts.filter(c => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 5);
+            }, [query, contacts]);
+
+            const handleSave = () => {
+                if (!text.trim()) return;
+                if (selectedId) {
+                    const contact = contacts.find(c => c.id === selectedId);
+                    const updated = { ...contact, notes: [{ id: Date.now(), text, tag: 'General', date: new Date().toISOString(), dismissed: false }, ...(contact.notes || [])] };
+                    setContacts(contacts.map(c => c.id === selectedId ? updated : c));
+                } else if (query) {
+                    const newContact = { id: Date.now(), name: query, relation: 'New Contact', notes: [{ id: Date.now(), text, tag: 'General', date: new Date().toISOString(), dismissed: false }], family: [], pets: [], events: [] };
+                    setContacts([...contacts, newContact]);
+                }
+                onCancel();
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-900 p-6 flex flex-col animate-fade-in text-white">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-emerald-400">Quick Note</h2>
+                        <button onClick={onCancel} className="p-2 bg-slate-800 rounded-full"><Icon name="x" size={20}/></button>
+                    </div>
+                    <textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="What did you learn?" className="w-full h-32 bg-slate-800 border-none rounded-xl p-4 text-lg mb-6 focus:ring-2 focus:ring-emerald-500 outline-none placeholder-slate-500" />
+                    <div className="space-y-2 mb-6">
+                        <label className="text-xs uppercase font-bold text-slate-500 tracking-wider">Link to Person</label>
+                        <div className="relative">
+                            <div className="absolute left-3 top-3 text-slate-400"><Icon name="search" size={18}/></div>
+                            <input value={query} onChange={e => { setQuery(e.target.value); setSelectedId(null); }} placeholder="Type name..." className={`w-full pl-10 pr-4 py-3 bg-slate-800 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 ${selectedId ? 'text-emerald-400 font-bold' : ''}`} />
+                            {selectedId && <Icon name="check" size={18} className="absolute right-3 top-3.5 text-emerald-500" />}
+                        </div>
+                        {!selectedId && query && (
+                            <div className="bg-slate-800 rounded-xl overflow-hidden divide-y divide-slate-700">
+                                {filtered.map(c => (
+                                    <div key={c.id} onClick={() => { setQuery(c.name); setSelectedId(c.id); }} className="p-3 flex items-center justify-between active:bg-slate-700">
+                                        <span>{c.name}</span><span className="text-xs text-slate-500">{c.relation}</span>
+                                    </div>
+                                ))}
+                                {filtered.length === 0 && <div className="p-3 bg-emerald-900/30 text-emerald-400 flex items-center gap-2"><Icon name="user-plus" size={16} /><span className="text-sm">Create new: <strong>"{query}"</strong></span></div>}
+                            </div>
+                        )}
+                    </div>
+                    <button onClick={handleSave} disabled={!text.trim() || (!selectedId && !query)} className="w-full py-4 bg-emerald-600 rounded-xl font-bold text-lg disabled:opacity-50 mt-auto">Save Note</button>
+                </div>
+            );
+        };
+
+        // --- Edit Profile Component ---
+        const EditProfile = ({ data, setData, onSave, onCancel, onDelete, darkMode }) => (
+            <div className="min-h-screen">
+                <div className={`sticky top-0 z-40 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b`}>
+                    <div className="flex items-center justify-between p-4">
+                        <button onClick={onCancel} className="p-2 -ml-2"><Icon name="x" size={20}/></button>
+                        <h2 className="font-bold">{data.id ? 'Edit Profile' : 'New Profile'}</h2>
+                        <button onClick={onSave} className="p-2 -mr-2 text-indigo-600 font-bold">Save</button>
+                    </div>
+                </div>
+                <div className="p-4 space-y-6 pb-24 animate-fade-in">
+                    <section>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Basic Information</h3>
+                        <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                            <Input label="Name *" value={data.name || ''} onChange={v => setData({...data, name: v})} darkMode={darkMode} required />
+                            <Input label="Nickname" value={data.nickname || ''} onChange={v => setData({...data, nickname: v})} darkMode={darkMode} />
+                            <Input label="Relationship *" value={data.relation || ''} onChange={v => setData({...data, relation: v})} darkMode={darkMode} required />
+                            <div>
+                                <label className="text-xs uppercase font-bold text-slate-400">Favorite</label>
+                                <div className="mt-2">
+                                    <button type="button" onClick={() => setData({...data, isFavorite: !data.isFavorite})} className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${data.isFavorite ? 'bg-yellow-50 border-yellow-300 text-yellow-700' : 'border-slate-300 text-slate-600'}`}>
+                                        <Icon name="star" size={16} className={data.isFavorite ? 'fill-yellow-500' : ''} />
+                                        {data.isFavorite ? 'Favorited' : 'Add to Favorites'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    <section>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Contact Details</h3>
+                        <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                            <Input label="Phone" value={data.details?.phone || ''} onChange={v => setData({...data, details: {...data.details, phone: v}})} darkMode={darkMode} type="tel" />
+                            <Input label="Email" value={data.details?.email || ''} onChange={v => setData({...data, details: {...data.details, email: v}})} darkMode={darkMode} type="email" />
+                            <Input label="Address" value={data.details?.address || ''} onChange={v => setData({...data, details: {...data.details, address: v}})} darkMode={darkMode} />
+                        </div>
+                    </section>
+                    <section>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Personal Details</h3>
+                        <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                            <Input type="date" label="Birthday" value={data.details?.birthday || ''} onChange={v => setData({...data, details: {...data.details, birthday: v}})} darkMode={darkMode} />
+                            <Input label="Occupation" value={data.details?.job || ''} onChange={v => setData({...data, details: {...data.details, job: v}})} darkMode={darkMode} />
+                        </div>
+                    </section>
+                    {data.id && <button onClick={onDelete} className="w-full py-3 text-red-500 font-medium">Delete Profile</button>}
+                </div>
             </div>
         );
 
