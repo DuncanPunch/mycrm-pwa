@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>myCRM - Personal Relationship Manager</title>
+    <meta name="description" content="Your personal CRM for managing relationships, notes, and important details about the people in your life.">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- PWA Settings for "App Feel" -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="myCRM">
+    <meta name="theme-color" content="#4f46e5">
+    
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
+
+    <!-- 1. Load Tailwind CSS (Styling) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { slate: { 900: '#0f172a' } } } }
+        }
+    </script>
+
+    <!-- 2. Load React & Lucide Icons -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script> <!-- Icons -->
+
+    <style>
+        /* Smooth animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        
+        /* Hide scrollbar for clean UI */
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        body { -webkit-tap-highlight-color: transparent; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 transition-colors duration-300">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        
+        // Register Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed'));
+            });
+        }
+        
+        // --- Icon Wrapper for Vanilla Lucide in React ---
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            });
+            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+        };
+
+        // --- Constants ---
+        const DEFAULT_TAGS = ['General', 'Movies', 'Food', 'Vehicle', 'Work', 'Gift Idea', 'Travel', 'Health', 'Memories'];
+
+        // --- Main App Component ---
+        function App() {
+            const [showSplash, setShowSplash] = useState(true);
+            const [isLocked, setIsLocked] = useState(true);
+            const [pin, setPin] = useState('');
+            const [userPin, setUserPin] = useState('1234');
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [viewStack, setViewStack] = useState([]);
+            const [contacts, setContacts] = useState([]);
+            const [activeContactId, setActiveContactId] = useState(null);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [editingData, setEditingData] = useState({});
+            const [darkMode, setDarkMode] = useState(false);
+            const [tags, setTags] = useState(DEFAULT_TAGS);
+
+            // --- Initialization ---
+            useEffect(() => {
+                // Theme
+                const savedTheme = localStorage.getItem('mycrm_theme');
+                if (savedTheme === 'dark') {
+                    setDarkMode(true);
+                    document.documentElement.classList.add('dark');
+                }
+
+                // PIN
+                const savedPin = localStorage.getItem('mycrm_pin');
+                if (savedPin) setUserPin(savedPin);
+
+                // Data
+                const savedData = localStorage.getItem('mycrm_data');
+                if (savedData) {
+                    setContacts(JSON.parse(savedData));
+                } else {
+                    // Seed Data
+                    setContacts([{
+                        id: 1, name: "Sarah Jenkins", nickname: "Sare-Bear", isFavorite: true, relation: "College Friend",
+                        details: { birthday: "1992-04-15", job: "Graphic Designer" },
+                        family: [], pets: [], events: [],
+                        notes: [{ id: 901, text: "Loves spicy food", tag: "Food", date: new Date().toISOString(), dismissed: false }]
+                    }]);
+                }
+
+                setTimeout(() => setShowSplash(false), 2200);
+            }, []);
+
+            // --- Persistence ---
+            useEffect(() => {
+                localStorage.setItem('mycrm_data', JSON.stringify(contacts));
+            }, [contacts]);
+
+            const toggleTheme = () => {
+                const newMode = !darkMode;
+                setDarkMode(newMode);
+                if(newMode) document.documentElement.classList.add('dark');
+                else document.documentElement.classList.remove('dark');
+                localStorage.setItem('mycrm_theme', newMode ? 'dark' : 'light');
+            };
+
+            // --- Navigation & Helpers ---
+            const handleUnlock = () => pin === userPin ? (setIsLocked(false), setPin('')) : (alert("Incorrect PIN"), setPin(''));
+            
+            const handleSaveProfile = () => {
+                if (!editingData.name) return;
+                const clean = { ...editingData, family: editingData.family||[], pets: editingData.pets||[], events: editingData.events||[], notes: editingData.notes||[] };
+                if (editingData.id) setContacts(contacts.map(c => c.id === editingData.id ? clean : c));
+                else setContacts([...contacts, { ...clean, id: Date.now() }]);
+                goBack();
+            };
+
+            const navigateToContact = (id) => { setActiveContactId(id); setViewStack([...viewStack, 'detail']); };
+            const navigateToEdit = (data = {}) => { setEditingData(data.id ? data : { details: {}, family: [], pets: [], events: [], notes: [] }); setViewStack([...viewStack, 'edit']); };
+            const goBack = () => { const newStack = [...viewStack]; newStack.pop(); setViewStack(newStack); };
+
+            const handleExportCSV = () => {
+                const csvContent = "data:text/csv;charset=utf-8," + "ID,Name,Relation,Job,Notes\n" + contacts.map(c => `${c.id},"${c.name}","${c.relation}","${c.details?.job||''}"`).join("\n");
+                const node = document.createElement('a'); node.href = encodeURI(csvContent); node.download = "mycrm_export.csv"; document.body.appendChild(node); node.click(); node.remove();
+            };
+
+             const handleQuickNoteFromLock = (text, contactId, newName) => {
+                const newNote = { id: Date.now(), text, tag: 'General', date: new Date().toISOString(), dismissed: false };
+                if (contactId) {
+                    setContacts(prev => prev.map(c => c.id === contactId ? { ...c, notes: [newNote, ...(c.notes || [])] } : c));
+                } else if (newName) {
+                    setContacts(prev => [...prev, { id: Date.now(), name: newName, relation: 'New Connection', notes: [newNote], details: {}, family: [], pets: [], events: [] }]);
+                }
+            };
+
+            // --- Derived Data ---
+            const recentNotes = useMemo(() => {
+                return contacts.flatMap(c => c.notes?.filter(n => !n.dismissed).map(n => ({...n, cName: c.name, cId: c.id})) || [])
+                .sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
+            }, [contacts]);
+
+            // --- Render: Splash ---
+            if (showSplash) return (
+                <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white animate-fade-in">
+                    <div className="relative mb-6">
+                        <div className="absolute inset-0 bg-indigo-500 blur-xl opacity-50 rounded-full animate-pulse"></div>
+                        <Icon name="fingerprint" size={80} className="relative z-10 text-white" />
+                    </div>
+                    <h1 className="text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-200 to-emerald-200">myCRM</h1>
+                    <p className="text-slate-500 mt-2 text-sm uppercase tracking-[0.3em]">Personal Manager</p>
+                </div>
+            );
+
+            // --- Render: Lock Screen ---
+            if (isLocked) return <LockScreen pin={pin} setPin={setPin} onUnlock={handleUnlock} contacts={contacts} onQuickSave={handleQuickNoteFromLock} />;
+
+            const currentView = viewStack.length > 0 ? viewStack[viewStack.length - 1] : activeTab;
+            const activeContact = contacts.find(c => c.id === activeContactId);
+
+            return (
+                <div className={`min-h-screen max-w-md mx-auto shadow-2xl flex flex-col ${darkMode ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'}`}>
+                    
+                    {/* Header */}
+                    <header className={`p-4 sticky top-0 z-20 border-b flex justify-between items-center ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+                        {viewStack.length > 0 ? (
+                            <button onClick={goBack} className="text-slate-500 flex items-center gap-1 font-medium"><Icon name="chevron-left" size={20}/> Back</button>
+                        ) : (
+                            <h1 className="text-xl font-bold flex items-center gap-2">
+                                {activeTab === 'dashboard' && <><Icon name="home" className="text-indigo-500"/> Dashboard</>}
+                                {activeTab === 'list' && <><Icon name="users" className="text-indigo-500"/> Connections</>}
+                                {activeTab === 'settings' && <><Icon name="settings" className="text-indigo-500"/> Settings</>}
+                            </h1>
+                        )}
+                        <div className="flex gap-2">
+                            <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+                                <Icon name={darkMode ? "sun" : "moon"} size={20} />
+                            </button>
+                            <button onClick={() => setIsLocked(true)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+                                <Icon name="lock" size={20} />
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-y-auto pb-24 p-4">
+                        
+                        {/* DASHBOARD */}
+                        {currentView === 'dashboard' && (
+                            <div className="space-y-6 animate-fade-in">
+                                {/* Favorites */}
+                                <section>
+                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="star" size={14}/> Favorites</h3>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {contacts.filter(c => c.isFavorite).map(c => (
+                                            <div key={c.id} onClick={() => navigateToContact(c.id)} className="bg-gradient-to-br from-indigo-500 to-purple-600 p-3 rounded-xl text-white shadow-md active:scale-95 transition-transform">
+                                                <div className="font-bold text-lg">{c.name}</div>
+                                                <div className="text-xs text-indigo-100 opacity-80">{c.relation}</div>
+                                            </div>
+                                        ))}
+                                        {contacts.filter(c => c.isFavorite).length === 0 && <div className="text-sm text-slate-400 italic col-span-2">No favorites yet.</div>}
+                                    </div>
+                                </section>
+
+                                {/* Recent Notes */}
+                                <section>
+                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="sticky-note" size={14}/> Recent Notes</h3>
+                                    <div className="space-y-3">
+                                        {recentNotes.map(n => (
+                                            <div key={n.id} onClick={() => navigateToContact(n.cId)} className={`p-3 rounded-xl shadow-sm border cursor-pointer relative ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                                                <p className="text-sm line-clamp-2 pr-8">"{n.text}"</p>
+                                                <div className="flex justify-between items-center mt-2">
+                                                    <span className="text-xs font-bold text-indigo-500">{n.cName}</span>
+                                                    <span className="text-[10px] text-slate-400">{new Date(n.date).toLocaleDateString()}</span>
+                                                </div>
+                                                <button onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setContacts(contacts.map(c => c.id === n.cId ? { ...c, notes: c.notes.map(nt => nt.id === n.id ? { ...nt, dismissed: true } : nt) } : c));
+                                                }} className="absolute top-2 right-2 text-slate-300 hover:text-emerald-500"><Icon name="check-circle" size={18}/></button>
+                                            </div>
+                                        ))}
+                                        {recentNotes.length === 0 && <div className="text-center text-slate-400 text-sm italic py-4">All caught up!</div>}
+                                    </div>
+                                </section>
+                            </div>
+                        )}
+
+                        {/* LIST VIEW */}
+                        {currentView === 'list' && (
+                            <div className="space-y-4 animate-fade-in">
+                                <div className="relative">
+                                    <div className="absolute left-3 top-3 text-slate-400"><Icon name="search" size={18} /></div>
+                                    <input type="text" placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 text-white' : 'bg-white'}`} />
+                                </div>
+                                <div className="space-y-2">
+                                    {contacts.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                                        .sort((a,b) => (b.isFavorite === a.isFavorite) ? a.name.localeCompare(b.name) : b.isFavorite - a.isFavorite)
+                                        .map(contact => (
+                                        <div key={contact.id} onClick={() => navigateToContact(contact.id)} className={`p-4 rounded-xl shadow-sm border flex items-center justify-between active:scale-[0.98] transition-transform ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${darkMode ? 'bg-indigo-900 text-indigo-300' : 'bg-indigo-100 text-indigo-700'}`}>{contact.name.charAt(0)}</div>
+                                                <div>
+                                                    <h3 className="font-bold flex items-center gap-2">{contact.name} {contact.isFavorite && <Icon name="star" size={12} className="text-yellow-400 fill-yellow-400"/>}</h3>
+                                                    <span className="text-xs font-medium text-slate-400 uppercase">{contact.relation}</span>
+                                                </div>
+                                            </div>
+                                            <Icon name="chevron-right" size={18} className="text-slate-400" />
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => navigateToEdit()} className="fixed bottom-24 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 active:scale-90 transition-all z-30"><Icon name="plus" size={24}/></button>
+                            </div>
+                        )}
+
+                        {/* DETAIL VIEW */}
+                        {currentView === 'detail' && activeContact && (
+                            <ContactDetail contact={activeContact} onEdit={() => navigateToEdit(activeContact)} setContacts={setContacts} allContacts={contacts} tags={tags} navigateToContact={navigateToContact} darkMode={darkMode} />
+                        )}
+
+                        {/* EDIT VIEW */}
+                        {currentView === 'edit' && (
+                            <EditProfile data={editingData} setData={setEditingData} allContacts={contacts} onSave={handleSaveProfile} onCancel={goBack} darkMode={darkMode}
+                                onDelete={() => { if (confirm("Delete profile?")) { setContacts(contacts.filter(c => c.id !== editingData.id)); goBack(); goBack(); } }} />
+                        )}
+
+                        {/* SETTINGS VIEW */}
+                        {currentView === 'settings' && (
+                            <div className="space-y-6 animate-fade-in">
+                                <div className={`p-6 rounded-2xl shadow-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                                    <h2 className="text-lg font-bold mb-4">Data & Security</h2>
+                                    <div className="space-y-4">
+                                        <button onClick={handleExportCSV} className={`w-full p-3 rounded-lg border flex items-center justify-between ${darkMode ? 'bg-slate-700 border-slate-600' : 'bg-slate-50 border-slate-200'}`}>
+                                            <span className="flex items-center gap-2"><Icon name="download" size={18}/> Export CSV</span>
+                                        </button>
+                                        <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Change PIN</label>
+                                            <input type="tel" value={userPin} onChange={e => { setUserPin(e.target.value); localStorage.setItem('mycrm_pin', e.target.value); }} 
+                                                className={`w-full mt-2 p-3 rounded-lg border outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-slate-50 border-slate-200'}`} />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Bottom Nav */}
+                    {viewStack.length === 0 && (
+                        <nav className={`border-t px-6 py-3 flex justify-between items-center z-30 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                            <NavButton icon="home" label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} darkMode={darkMode} />
+                            <NavButton icon="users" label="People" active={activeTab === 'list'} onClick={() => setActiveTab('list')} darkMode={darkMode} />
+                            <NavButton icon="settings" label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} darkMode={darkMode} />
+                        </nav>
+                    )}
+                </div>
+            );
+        }
+
+        // --- Sub-Components ---
+
+        const NavButton = ({ icon, label, active, onClick, darkMode }) => (
+            <button onClick={onClick} className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-indigo-500' : 'text-slate-400'}`}>
+                <Icon name={icon} size={24} className={active ? "stroke-2" : "stroke-1"} />
+                <span className="text-[10px] font-medium">{label}</span>
+            </button>
+        );
+
+        const LockScreen = ({ pin, setPin, onUnlock, contacts, onQuickSave }) => {
+            const [mode, setMode] = useState('pin'); 
+            if (mode === 'quick') return <QuickNoteOverlay contacts={contacts} onSave={onQuickSave} onCancel={() => setMode('pin')} />;
+
+            return (
+                <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white relative">
+                    <div className="mb-8 bg-indigo-500 p-4 rounded-full bg-opacity-20"><Icon name="lock" size={48} className="text-indigo-400" /></div>
+                    <h1 className="text-2xl font-bold mb-8">myCRM</h1>
+                    <div className="flex gap-4 mb-8">
+                        {[1, 2, 3, 4].map((_, i) => (<div key={i} className={`w-4 h-4 rounded-full transition-all ${pin.length > i ? 'bg-indigo-500 scale-110' : 'bg-slate-700'}`} />))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 w-full max-w-xs">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'quick', 0, 'back'].map((num, i) => (
+                            num === 'quick' ? (
+                                <div key="q" className="flex items-center justify-center">
+                                    <button onClick={() => setMode('quick')} className="h-16 w-16 rounded-full bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-500 active:scale-95 transition-all shadow-lg">
+                                        <Icon name="plus" size={28} />
+                                    </button>
+                                </div>
+                            ) : 
+                            num === 'back' ? (
+                                <div key="b" className="flex items-center justify-center">
+                                    <button onClick={() => setPin(prev => prev.slice(0, -1))} className="h-16 w-16 rounded-full text-slate-400 hover:text-white flex items-center justify-center">
+                                        <Icon name="delete" size={24} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button key={num} onClick={() => setPin(prev => (prev.length < 4 ? prev + num : prev))} className="h-16 w-16 rounded-full bg-slate-800 text-xl font-bold hover:bg-slate-700 active:bg-indigo-600 transition-colors">{num}</button>
+                            )
+                        ))}
+                    </div>
+                    <button onClick={onUnlock} className="mt-8 w-full max-w-xs py-3 bg-indigo-600 rounded-lg font-bold active:bg-indigo-700 disabled:opacity-50" disabled={pin.length !== 4}>Unlock</button>
+                </div>
+            );
+        };
+
+        const QuickNoteOverlay = ({ contacts, onSave, onCancel }) => {
+            const [text, setText] = useState('');
+            const [query, setQuery] = useState('');
+            const [selectedId, setSelectedId] = useState(null);
+            const [saved, setSaved] = useState(false);
+            const filtered = contacts.filter(c => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 3);
+
+            const handleSave = () => {
+                onSave(text, selectedId, !selectedId ? query : null); 
+                setSaved(true);
+                setTimeout(onCancel, 1000);
+            };
+
+            if (saved) return <div className="min-h-screen bg-emerald-600 flex flex-col items-center justify-center text-white animate-fade-in"><Icon name="check" size={64} className="mb-4" /><h2 className="text-2xl font-bold">Saved!</h2></div>;
+
+            return (
+                <div className="min-h-screen bg-slate-900 p-6 flex flex-col animate-fade-in text-white">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-emerald-400">Quick Note</h2>
+                        <button onClick={onCancel} className="p-2 bg-slate-800 rounded-full"><Icon name="x" size={20}/></button>
+                    </div>
+                    <textarea autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="What did you learn?" className="w-full h-32 bg-slate-800 border-none rounded-xl p-4 text-lg mb-6 focus:ring-2 focus:ring-emerald-500 outline-none placeholder-slate-500" />
+                    <div className="space-y-2 mb-6">
+                        <label className="text-xs uppercase font-bold text-slate-500 tracking-wider">Link to Person</label>
+                        <div className="relative">
+                            <div className="absolute left-3 top-3 text-slate-400"><Icon name="search" size={18}/></div>
+                            <input value={query} onChange={e => { setQuery(e.target.value); setSelectedId(null); }} placeholder="Type name..." className={`w-full pl-10 pr-4 py-3 bg-slate-800 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 ${selectedId ? 'text-emerald-400 font-bold' : ''}`} />
+                            {selectedId && <Icon name="check" size={18} className="absolute right-3 top-3.5 text-emerald-500" />}
+                        </div>
+                        {!selectedId && query && (
+                            <div className="bg-slate-800 rounded-xl overflow-hidden divide-y divide-slate-700">
+                                {filtered.map(c => (
+                                    <div key={c.id} onClick={() => { setQuery(c.name); setSelectedId(c.id); }} className="p-3 flex items-center justify-between active:bg-slate-700"><span>{c.name}</span><span className="text-xs text-slate-500">{c.relation}</span></div>
+                                ))}
+                                {filtered.length === 0 && <div className="p-3 bg-emerald-900/30 text-emerald-400 flex items-center gap-2"><Icon name="user-plus" size={16} /><span className="text-sm">Create new: <strong>"{query}"</strong></span></div>}
+                            </div>
+                        )}
+                    </div>
+                    <button onClick={handleSave} disabled={!text.trim() || (!selectedId && !query)} className="w-full py-4 bg-emerald-600 rounded-xl font-bold text-lg disabled:opacity-50 mt-auto">Save Note</button>
+                </div>
+            );
+        };
+
+        const ContactDetail = ({ contact, onEdit, setContacts, allContacts, tags, darkMode }) => {
+            const sortedNotes = useMemo(() => [...(contact.notes || [])].sort((a,b) => new Date(b.date) - new Date(a.date)), [contact.notes]);
+            const groupedNotes = useMemo(() => {
+                const groups = {};
+                sortedNotes.forEach(n => { const t = n.tag || 'General'; if(!groups[t]) groups[t]=[]; groups[t].push(n); });
+                return groups;
+            }, [sortedNotes]);
+
+            const addNote = (text, tag) => {
+                const updated = { ...contact, notes: [{ id: Date.now(), text, tag, date: new Date().toISOString(), dismissed: false }, ...(contact.notes || [])] };
+                setContacts(allContacts.map(c => c.id === contact.id ? updated : c));
+            };
+
+            return (
+                <div className="animate-fade-in pb-6">
+                    <div className={`px-6 py-6 border-b ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-100'}`}>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h2 className="text-2xl font-bold flex items-center gap-2">{contact.name} {contact.isFavorite && <Icon name="star" size={18} className="fill-yellow-400 text-yellow-400"/>}</h2>
+                                <span className="inline-block mt-2 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded font-medium">{contact.relation}</span>
+                            </div>
+                            <button onClick={onEdit}><Icon name="edit-2" size={18}/></button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 mt-6 text-sm">
+                            {contact.details?.birthday && <div className="flex items-center gap-2 text-slate-500"><Icon name="calendar" size={14}/> {new Date(contact.details.birthday).toLocaleDateString()}</div>}
+                            {contact.details?.job && <div className="flex items-center gap-2 text-slate-500"><Icon name="briefcase" size={14}/> {contact.details.job}</div>}
+                        </div>
+                    </div>
+                    <div className="p-4 space-y-6">
+                        <section>
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="sticky-note" size={14} /> Notes</h3>
+                            <NoteInput onAdd={addNote} tags={tags} darkMode={darkMode} />
+                            <div className="mt-6 space-y-6">
+                                {Object.keys(groupedNotes).sort((a, b) => a.localeCompare(b)).map(tag => (
+                                    <div key={tag} className="space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded">{tag}</span>
+                                            <div className="h-[1px] flex-1 bg-slate-200 dark:bg-slate-700"></div>
+                                        </div>
+                                        {groupedNotes[tag].map(note => (
+                                            <div key={note.id} className={`p-3 rounded-lg text-sm border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-amber-50 border-amber-100'}`}>
+                                                <p className="whitespace-pre-wrap">{note.text}</p>
+                                                <div className="text-xs text-slate-400 mt-2 text-right">{new Date(note.date).toLocaleDateString()}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            );
+        };
+
+        const NoteInput = ({ onAdd, tags, darkMode }) => {
+            const [text, setText] = useState('');
+            const [tag, setTag] = useState('General');
+            return (
+                <form onSubmit={e => { e.preventDefault(); onAdd(text, tag); setText(''); }} className="space-y-2">
+                    <div className="relative">
+                        <input type="text" value={text} onChange={e => setText(e.target.value)} placeholder="Add a note..." 
+                            className={`w-full pl-4 pr-12 py-3 rounded-xl shadow-sm border outline-none focus:ring-2 focus:ring-indigo-500 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`} />
+                        <button type="submit" disabled={!text.trim()} className="absolute right-2 top-2 p-1.5 bg-indigo-600 text-white rounded-lg disabled:opacity-50"><Icon name="plus" size={16} /></button>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {tags.map(t => (
+                            <button key={t} type="button" onClick={() => setTag(t)} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${tag === t ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{t}</button>
+                        ))}
+                    </div>
+                </form>
+            );
+        };
+
+        const EditProfile = ({ data, setData, onSave, onCancel, onDelete, darkMode }) => (
+            <div className="p-4 animate-fade-in space-y-6 pb-24">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-bold">{data.id ? 'Edit Profile' : 'New Profile'}</h2>
+                    <button onClick={onCancel}><Icon name="x" size={20}/></button>
+                </div>
+                <div className={`p-4 rounded-xl border space-y-4 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                    <Input label="Name" value={data.name || ''} onChange={v => setData({...data, name: v})} darkMode={darkMode} />
+                    <Input label="Relation" value={data.relation || ''} onChange={v => setData({...data, relation: v})} darkMode={darkMode} />
+                    <Input label="Job" value={data.details?.job || ''} onChange={v => setData({...data, details: {...data.details, job: v}})} darkMode={darkMode} />
+                    <Input type="date" label="Birthday" value={data.details?.birthday || ''} onChange={v => setData({...data, details: {...data.details, birthday: v}})} darkMode={darkMode} />
+                </div>
+                <button onClick={onSave} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold">Save</button>
+                {data.id && <button onClick={onDelete} className="w-full py-3 text-red-500">Delete Profile</button>}
+            </div>
+        );
+
+        const Input = ({ label, value, onChange, type="text", darkMode }) => (
+            <div>
+                <label className="text-xs uppercase font-bold text-slate-400">{label}</label>
+                <input type={type} value={value} onChange={e => onChange(e.target.value)} className={`w-full p-3 mt-1 rounded-lg border outline-none ${darkMode ? 'bg-slate-900 border-slate-600' : 'bg-slate-50 border-slate-200'}`} />
+            </div>
+        );
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
