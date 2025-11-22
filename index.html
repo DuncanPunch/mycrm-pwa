@@ -66,10 +66,25 @@
         
         // --- Icon Wrapper for Vanilla Lucide in React ---
         const Icon = ({ name, size = 24, className = "" }) => {
+            const iconRef = React.useRef(null);
+            
             useEffect(() => {
-                lucide.createIcons();
-            });
-            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+                if (iconRef.current) {
+                    // Clear any existing icon
+                    iconRef.current.innerHTML = '';
+                    // Create the icon element
+                    const iconElement = document.createElement('i');
+                    iconElement.setAttribute('data-lucide', name);
+                    iconElement.setAttribute('width', size);
+                    iconElement.setAttribute('height', size);
+                    if (className) iconElement.className = className;
+                    iconRef.current.appendChild(iconElement);
+                    // Initialize Lucide on this specific element
+                    lucide.createIcons({ icons: { [name]: lucide[name] }, nameAttr: 'data-lucide' });
+                }
+            }, [name, size, className]);
+            
+            return <span ref={iconRef} style={{ display: 'inline-flex', alignItems: 'center' }}></span>;
         };
 
         // --- Constants ---
